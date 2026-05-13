@@ -1,0 +1,15 @@
+[project]
+name = "gwangsan-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "pillow>=12.1.1",
+    "pydantic>=2.0.0",
+    "python-multipart>=0.0.9",
+    "torch>=2.11.0",
+    "transformers>=5.4.0",
+    "uvicorn>=0.34.0",
+]
