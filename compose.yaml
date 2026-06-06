@@ -1,0 +1,12 @@
+services:
+  ai:
+    build: .
+    container_name: gwangsan-ai
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+
+volumes:
+  huggingface-cache:
