@@ -24,7 +24,8 @@ async def lifespan(app: FastAPI):
     model = ViTForImageClassification.from_pretrained(MODEL_ID).to(DEVICE)
     model.eval()
     yield
-    del processor, model
+    processor = None
+    model = None
 
 
 app = FastAPI(lifespan=lifespan)

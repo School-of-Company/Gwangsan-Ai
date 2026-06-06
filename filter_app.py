@@ -20,7 +20,8 @@ async def lifespan(app: FastAPI):
     model = ElectraForSequenceClassification.from_pretrained(MODEL_NAME).to(DEVICE)
     model.eval()
     yield
-    del tokenizer, model
+    tokenizer = None
+    model = None
 
 
 app = FastAPI(lifespan=lifespan)
