@@ -1,6 +1,7 @@
 from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 import filter_app
 import nsfw_app
@@ -25,7 +26,11 @@ def health():
         and nsfw_app.model is not None
         and nsfw_app.processor is not None
     )
-    return {"status": "ok" if ready else "loading"}
+    status_code = 200 if ready else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if ready else "loading"},
+    )
 
 
 @app.post("/predict")
