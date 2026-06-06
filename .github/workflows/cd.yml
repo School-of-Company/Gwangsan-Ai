@@ -1,0 +1,85 @@
+name: CI/CD
+
+on:
+  push:
+    branches: ["develop"]
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: ${{ vars.AI_ECR_REPOSITORY || 'gwangsan-ai' }}
+  CODEDEPLOY_APPLICATION: ${{ vars.AI_CODEDEPLOY_APPLICATION || 'gwangsan-ai' }}
+  CODEDEPLOY_GROUP: ${{ vars.AI_CODEDEPLOY_GROUP || 'gwangsan-ai-deployment-group' }}
+  DEPLOY_BUCKET: ${{ vars.AI_DEPLOY_BUCKET || 'gwangsan-githubaction' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_ID }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+      - name: Create CodeDeploy bundle
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          mkdir -p codedeploy/scripts
+          cat > codedeploy/appspec.yml <<'EOF'
+          version: 0.0
+          os: linux
+          hooks:
+            AfterInstall:
+              - location: scripts/deploy.sh
+                timeout: 600
+                runas: root
+          EOF
+          cat > codedeploy/scripts/deploy.sh <<EOF
+          #!/bin/bash
+          set -euo pipefail
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          docker pull "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker stop gwangsan-ai || true
+          docker rm gwangsan-ai || true
+          docker run -d \
+            --name gwangsan-ai \
+            --restart unless-stopped \
+            -p 8000:8000 \
+            -e TZ=Asia/Seoul \
+            -v gwangsan-ai-model-cache:/root/.cache/huggingface \
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker image prune -f
+          EOF
+          chmod +x codedeploy/scripts/deploy.sh
+          cd codedeploy && zip -r ../deploy.zip .
+
+      - name: Upload deployment bundle
+        run: aws s3 cp deploy.zip "s3://$DEPLOY_BUCKET/codedeploy/gwangsan-ai-${{ github.sha }}.zip"
+
+      - name: Deploy
+        run: |
+          aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APPLICATION" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --s3-location "bucket=$DEPLOY_BUCKET,key=codedeploy/gwangsan-ai-${{ github.sha }}.zip,bundleType=zip" \
+            --region "$AWS_REGION"
